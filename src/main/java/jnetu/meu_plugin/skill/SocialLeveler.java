@@ -4,7 +4,6 @@ import dev.aurelium.auraskills.api.AuraSkillsApi;
 import dev.aurelium.auraskills.api.skill.Skill;
 import dev.aurelium.auraskills.api.source.SkillSource;
 import dev.aurelium.auraskills.api.user.SkillsUser;
-import dev.aurelium.auraskills.bukkit.AuraSkills;
 import org.bukkit.Bukkit;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
@@ -21,87 +20,54 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 
+/**
+ * Leveler da Skill Social com sistema de "bateria social"
+ * 
+ * Como funciona:
+ * - Cada jogador tem uma bateria que recarrega com o tempo
+ * - Ao falar no chat, consome a bateria e ganha XP proporcional
+ * - XP baixo: silencioso (sem ActionBar)
+ * - XP alto: com feedback (ActionBar + som)
+ */
 public class SocialLeveler implements Listener {
 
     private final JavaPlugin plugin;
     private final AuraSkillsApi api;
-    private final AuraSkills auraSkills;
     private final Map<UUID, SocialData> socialBattery = new ConcurrentHashMap<>();
 
     public SocialLeveler(JavaPlugin plugin, AuraSkillsApi api) {
         this.plugin = plugin;
         this.api = api;
-        this.auraSkills = (AuraSkills) Bukkit.getPluginManager().getPlugin("AuraSkills");
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void aoFalarNoChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
-        SkillSource<SocialSource> skillSourceWrapper = api.getSourceManager().getSingleSourceOfType(SocialSource.class);
-        if (skillSourceWrapper == null) return;
-        SocialSource sourceConfig = skillSourceWrapper.source();
-        double xpGanho = calcularXpGanho(uuid, sourceConfig); //fazer na thread chat
 
-//        SocialData data = atualizarBateria(uuid, sourceConfig.getRechargeMs());
-//        double carga;
-//        synchronized (data) {
-//            carga = data.cargaAtual;
-//            data.cargaAtual = 0.0;
-//            data.ultimoUpdate = System.currentTimeMillis();
-//        }
-//
-//        double xpGanho = carga * sourceConfig.getXp();//variavel dentro de um yml//;
-//
-        if (xpGanho < 0.1) return;
-        Skill cashSkill =  skillSourceWrapper.skill();
-        Bukkit.getScheduler().runTask(plugin, () -> {
-            //SE NADA FUNCIONAR NESSA PORRA USE ISSO:
-//            if (player.isOnline()) {
-//                //api.getUser(uuid).addSkillXp(cashSkill, xpGanho);
-//
-//                SkillsUser user = api.getUser(event.getPlayer().getUniqueId());
-//
-//                double limiteSilencioso = sourceConfig.getXp() / 2;
-//
-//
-//                if (xpGanho >= limiteSilencioso) {
-//                    // GANHO ALTO: Mostra Action Bar + Toca Som Padrão
-//                    user.addSkillXp(cashSkill, xpGanho);
-//                    player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.5f, 2.0f);
-//
-//                } else {
-//                    //gambiarra para não mostrar barra de xp
-//                    double xpAtual = user.getSkillXp(cashSkill);
-//                    user.setSkillXp(cashSkill, xpAtual + xpGanho);
-//                }
-//
-//            }
-            processarGanhoXp(player, cashSkill, xpGanho, sourceConfig);
-        });
-    }
-
-
-    private void processarGanhoXp(Player player, Skill skill, double xpGanho, SocialSource config) {
-        if (!player.isOnline()) return;
-
-        SkillsUser user = api.getUser(player.getUniqueId());
-        if (user == null) return;
-
-        double limiteSilencioso = config.getXp() / 2;
-
-        if (xpGanho >= limiteSilencioso) {
-            // GANHO ALTO: Mostra Action Bar + Toca Som Padrão
-            user.addSkillXp(skill, xpGanho);
-            player.playSound(player.getLocation(),
-                    Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.5f, 2.0f);
-        } else {
-            //gambiarra para não mostrar barra de xp
-            double xpAtual = user.getSkillXp(skill);
-            user.setSkillXp(skill, xpAtual + xpGanho);
+        // Busca a configuração da skill Social
+        SkillSource<SocialSource> skillSourceWrapper = api.getSourceManager()
+                .getSingleSourceOfType(SocialSource.class);
+        
+        if (skillSourceWrapper == null) {
+            plugin.getLogger().warning("SocialSource não encontrado! Verifique o arquivo social.yml");
+            return;
         }
-    }
 
+        SocialSource sourceConfig = skillSourceWrapper.source();
+        Skill socialSkill = skillSourceWrapper.skill();
+
+        // Calcula XP baseado na bateria (thread-safe)
+        double xpGanho = calcularXpGanho(uuid, sourceConfig);
+        
+        // Ignora ganhos muito pequenos
+        if (xpGanho < 0.1) return;
+
+        // Move para thread principal (obrigatório para modificar XP)
+        Bukkit.getScheduler().runTask(plugin, () -> 
+            processarGanhoXp(player, socialSkill, xpGanho, sourceConfig)
+        );
+    }
 
     /**
      * Calcula quanto XP o jogador deve ganhar baseado na bateria social
@@ -113,7 +79,7 @@ public class SocialLeveler implements Listener {
         data.lock.lock();
         try {
             double carga = data.cargaAtual;
-            data.cargaAtual = 0.0; // Esvazia a bateria
+            data.cargaAtual = 0.0; // Esvazia a bateria ao usar
             data.ultimoUpdate = System.currentTimeMillis();
 
             return carga * sourceConfig.getXp();
@@ -122,23 +88,47 @@ public class SocialLeveler implements Listener {
         }
     }
 
+    /**
+     * Processa o ganho de XP na thread principal
+     * XP baixo: silencioso (sem ActionBar, sem som)
+     * XP alto: com feedback completo (ActionBar + som extra)
+     */
+    private void processarGanhoXp(Player player, Skill skill, double xpGanho, SocialSource config) {
+        if (!player.isOnline()) return;
 
+        SkillsUser user = api.getUser(player.getUniqueId());
+        if (user == null) return;
+
+        double limiteParaSom = config.getXp() / 2;
+
+        if (xpGanho >= limiteParaSom) {
+            // GANHO ALTO: Mostra ActionBar + Som padrão do AuraSkills + Som extra
+            user.addSkillXp(skill, xpGanho);
+            player.playSound(player.getLocation(), 
+                Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.5f, 2.0f);
+        } else {
+            // GANHO BAIXO: Adiciona XP silenciosamente
+            // O setSkillXp() da API já chama checkLevelUp() internamente
+            double xpAtual = user.getSkillXp(skill);
+            user.setSkillXp(skill, xpAtual + xpGanho);
+        }
+    }
 
     /**
      * Atualiza a bateria social baseada no tempo passado
      * Recarga de 0% a 100% baseado no tempo configurado no YML
      */
     private SocialData atualizarBateria(UUID uuid, long tempoRecargaMs) {
-        SocialData data = socialBattery.computeIfAbsent(uuid,
-                k -> new SocialData(System.currentTimeMillis()));
+        SocialData data = socialBattery.computeIfAbsent(uuid, 
+            k -> new SocialData(System.currentTimeMillis()));
 
         data.lock.lock();
         try {
             long agora = System.currentTimeMillis();
             long tempoPassado = agora - data.ultimoUpdate;
 
-            // Cálculo baseado no tempo configurado no YML
-            //Exe: se passou metade do tempo, recarrega 50%
+            // Calcula quanto % recarregou baseado no tempo
+            // Exemplo: se passou metade do tempo de recarga, recarrega 50%
             double recarga = (double) tempoPassado / tempoRecargaMs;
 
             data.cargaAtual = Math.min(1.0, data.cargaAtual + recarga);
@@ -152,31 +142,28 @@ public class SocialLeveler implements Listener {
 
     @EventHandler
     public void aoEntrar(PlayerJoinEvent event) {
-        // putIfAbsent evita sobrescrever se já existir
-        socialBattery.putIfAbsent(event.getPlayer().getUniqueId(), new SocialData(System.currentTimeMillis()));
+        UUID uuid = event.getPlayer().getUniqueId();
+        // putIfAbsent evita sobrescrever dados se já existirem
+        socialBattery.putIfAbsent(uuid, new SocialData(System.currentTimeMillis()));
     }
+
     @EventHandler
     public void aoSair(PlayerQuitEvent event) {
-
+        // Remove dados do jogador ao sair para liberar memória
         socialBattery.remove(event.getPlayer().getUniqueId());
     }
 
-//    private static class SocialData {
-//        double cargaAtual;
-//        long ultimoUpdate;
-//
-//        public SocialData(double cargaAtual, long ultimoUpdate) {
-//            this.cargaAtual = cargaAtual;
-//            this.ultimoUpdate = ultimoUpdate;
-//        }
-//    }
-private static class SocialData {
-    private final ReentrantLock lock = new ReentrantLock();
-    private double cargaAtual = 0.0; // 0.0 a 1.0 (0% a 100%)
-    private long ultimoUpdate;
+    /**
+     * Dados da bateria social do jogador
+     * Thread-safe usando ReentrantLock
+     */
+    private static class SocialData {
+        private final ReentrantLock lock = new ReentrantLock();
+        private double cargaAtual = 0.0; // 0.0 a 1.0 (0% a 100%)
+        private long ultimoUpdate;
 
-    public SocialData(long ultimoUpdate) {
-        this.ultimoUpdate = ultimoUpdate;
+        public SocialData(long ultimoUpdate) {
+            this.ultimoUpdate = ultimoUpdate;
+        }
     }
-}
 }
