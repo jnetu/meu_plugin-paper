@@ -25,6 +25,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * 
  * Como funciona:
  * - Cada jogador tem uma bateria que recarrega com o tempo
+ * - O stat Carisma reduz o tempo de recarga (10% por ponto)
  * - Ao falar no chat, consome a bateria e ganha XP proporcional
  * - XP baixo: silencioso (sem ActionBar)
  * - XP alto: com feedback (ActionBar + som)
@@ -58,7 +59,7 @@ public class SocialLeveler implements Listener {
         Skill socialSkill = skillSourceWrapper.skill();
 
         // Calcula XP baseado na bateria (thread-safe)
-        double xpGanho = calcularXpGanho(uuid, sourceConfig);
+        double xpGanho = calcularXpGanho(player, uuid, sourceConfig);
         
         // Ignora ganhos muito pequenos
         if (xpGanho < 0.1) return;
@@ -73,8 +74,8 @@ public class SocialLeveler implements Listener {
      * Calcula quanto XP o jogador deve ganhar baseado na bateria social
      * Thread-safe: pode ser chamado da thread assíncrona do chat
      */
-    private double calcularXpGanho(UUID uuid, SocialSource sourceConfig) {
-        SocialData data = atualizarBateria(uuid, sourceConfig.getRechargeMs());
+    private double calcularXpGanho(Player player, UUID uuid, SocialSource sourceConfig) {
+        SocialData data = atualizarBateria(player, uuid, sourceConfig.getRechargeMs());
 
         data.lock.lock();
         try {
@@ -116,9 +117,10 @@ public class SocialLeveler implements Listener {
 
     /**
      * Atualiza a bateria social baseada no tempo passado
+     * Aplica o bônus de Carisma na velocidade de recarga
      * Recarga de 0% a 100% baseado no tempo configurado no YML
      */
-    private SocialData atualizarBateria(UUID uuid, long tempoRecargaMs) {
+    private SocialData atualizarBateria(Player player, UUID uuid, long tempoRecargaBase) {
         SocialData data = socialBattery.computeIfAbsent(uuid, 
             k -> new SocialData(System.currentTimeMillis()));
 
@@ -127,9 +129,12 @@ public class SocialLeveler implements Listener {
             long agora = System.currentTimeMillis();
             long tempoPassado = agora - data.ultimoUpdate;
 
+            // Aplica o bônus de Carisma
+            long tempoRecargaComBonus = calcularTempoRecargaComCarisma(player, tempoRecargaBase);
+
             // Calcula quanto % recarregou baseado no tempo
             // Exemplo: se passou metade do tempo de recarga, recarrega 50%
-            double recarga = (double) tempoPassado / tempoRecargaMs;
+            double recarga = (double) tempoPassado / tempoRecargaComBonus;
 
             data.cargaAtual = Math.min(1.0, data.cargaAtual + recarga);
             data.ultimoUpdate = agora;
@@ -139,6 +144,53 @@ public class SocialLeveler implements Listener {
             data.lock.unlock();
         }
     }
+
+    /**
+     * Calcula o tempo de recarga com o bônus de Carisma
+     * Cada ponto de Carisma reduz 10% do tempo de recarga
+     * 
+     * Exemplos:
+     * - 0 Carisma: 600s (100%)
+     * - 1 Carisma: 540s (90%)
+     * - 2 Carisma: 480s (80%)
+     * - 5 Carisma: 300s (50%)
+     * - 10 Carisma: 0s (recarga instantânea)
+     */
+    private long calcularTempoRecargaComCarisma(Player player, long tempoBase) {
+        SkillsUser user = api.getUser(player.getUniqueId());
+        if (user == null) return tempoBase;
+
+        // ERRADO (Hardcoded):
+        // double carisma = user.getStatLevel(MinhasStats.CARISMA);
+        // double reducao = carisma * 0.10;
+        double valorTrait = user.getEffectiveTraitLevel(MinhasTraits.REDUCAO_BATERIA);
+
+        // %
+        double porcentagemReducao = valorTrait / 100.0;
+
+        // Trava em 100% - evita tempo negativo ou bugs
+        if (porcentagemReducao > 1.0) porcentagemReducao = 1.0;
+
+        // Calcula o tempo final
+        return (long) (tempoBase * (1.0 - porcentagemReducao));
+    }
+//    private long calcularTempoRecargaComCarisma(Player player, long tempoBase) {
+//        SkillsUser user = api.getUser(player.getUniqueId());
+//        if (user == null) return tempoBase;
+//
+//        // Pega o nível do stat Carisma
+//        double carisma = user.getStatLevel(MinhasStats.CARISMA);
+//
+//        // Cada ponto reduz 10%
+//        double reducao = carisma * 0.10;
+//
+//        // Limita a redução a 100% (não pode ser negativo)
+//        reducao = Math.min(reducao, 1.0);
+//
+//        // Calcula o tempo final
+//        // Exemplo: 600s com 3 de carisma = 600 * (1 - 0.30) = 420s
+//        return (long) (tempoBase * (1.0 - reducao));
+//    }
 
     @EventHandler
     public void aoEntrar(PlayerJoinEvent event) {

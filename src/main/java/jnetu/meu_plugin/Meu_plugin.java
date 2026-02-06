@@ -3,10 +3,7 @@ package jnetu.meu_plugin;
 import dev.aurelium.auraskills.api.AuraSkillsApi;
 import dev.aurelium.auraskills.api.registry.NamespacedRegistry;
 import dev.aurelium.auraskills.api.source.SourceType;
-import jnetu.meu_plugin.skill.MinhasSkills;
-import jnetu.meu_plugin.skill.SocialLeveler;
-import jnetu.meu_plugin.skill.SocialSkill;
-import jnetu.meu_plugin.skill.SocialSource;
+import jnetu.meu_plugin.skill.*;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -41,73 +38,105 @@ public final class Meu_plugin extends JavaPlugin implements Listener {
 
     @Override
     public void onEnable() {
-        // Plugin startup logic
-        getServer().getPluginManager().registerEvents(this, this);
-        getLogger().info(
-                "\n*****************************************\n" +
-                        "*****************************************\n" +
-                        "Plugin de jnetu iniciado com sucesso!\n" +
-                        "*****************************************\n" +
-                        "*****************************************\n");
+        // 1. Log de Início
+        getLogger().info("=========================================");
+        getLogger().info(" Iniciando Plugin de Skills (Jnetu)");
+        getLogger().info("=========================================");
 
-        Objects.requireNonNull(getCommand("sethome")).setExecutor(this);
-        Objects.requireNonNull(getCommand("home")).setExecutor(this);
-        Objects.requireNonNull(getCommand("habilidades")).setExecutor(this);
+        // 2. ARQUIVOS DE CONFIGURAÇÃO (Prioridade Máxima)
+        // É obrigatório gerar o stats.yml ANTES de carregar a API do AuraSkills
+        // para evitar o erro de NullPointerException nos menus.
+        salvarArquivo("stats.yml");
+        salvarArquivo("sources/social.yml");
+        salvarArquivo("rewards/social.yml");
 
+        // 3. CONFIGURAÇÃO AURASKILLS
+        carregarAuraSkills();
 
-        //AURASKILLS
-//        if (getServer().getPluginManager().getPlugin("AuraSkills") != null) {
-//            Objects.requireNonNull(getCommand("auratest")).setExecutor(new Aura_meu());
-//            getLogger().info("Integração com AuraSkills ativada!");
-//
-//            try {
-//                new SocialSkill(this).registrar();
-//            } catch (Exception e) {
-//                throw new RuntimeException(e);
-//            }
-//
-//        } else {
-//            getLogger().warning("AuraSkills não encontrado! O comando /auratest foi desativado.");
-//        }
+        // 4. CONFIGURAÇÃO BUKKIT (Comandos e Eventos)
+        carregarBukkit();
+
+        getLogger().info("Plugin totalmente carregado e pronto!");
+    }
 
 
+    /**
+     * Gerencia toda a lógica de carregamento da API AuraSkills
+     */
+    private void carregarAuraSkills() {
         AuraSkillsApi auraSkills = AuraSkillsApi.get();
 
-        // 1. Cria o Registry
+        // A. Inicializa o Registro (Lê o stats.yml que salvamos acima)
         NamespacedRegistry registry = auraSkills.useRegistry("meu_plugin", getDataFolder());
 
-        // 2. Registra a Skill estática
+        // B. Registra Traits e Stats (Ordem Importante: Trait -> Stat)
+        registry.registerTrait(MinhasTraits.REDUCAO_BATERIA);
+        registry.registerStat(MinhasStats.CARISMA);
+        getLogger().info("[AuraSkills] Stats e Traits registrados.");
+
+        // C. Registra Handlers (Lógica dos Traits)
+        CarismaHandler carismaHandler = new CarismaHandler(auraSkills);
+        auraSkills.getHandlers().registerTraitHandler(carismaHandler);
+
+        // D. Registra Skills
         registry.registerSkill(MinhasSkills.SOCIAL);
+        registry.registerSkill(MinhasSkills.MARKENTING); // Cuidado com o typo "Markenting" -> "Marketing"
+        getLogger().info("[AuraSkills] Skills registradas.");
 
-        // 3. Registra o Listener (lógica)
-        //Bukkit.getPluginManager().registerEvents(new SocialSkill(this), this);
-        //Bukkit.getPluginManager().registerEvents(new SocialLeveler(this, auraSkills), this);
+        // E. Registra Source Types (Fontes de XP customizadas)
+        registry.registerSourceType("chat_battery", (sourceNode, context) -> {
+            long recharge = sourceNode.node("recharge_seconds").getLong(600);
+            return new SocialSource(context.parseValues(sourceNode), recharge);
+        });
+        getLogger().info("[AuraSkills] SourceType 'chat_battery' registrado.");
 
-
-        SourceType chatSourceType = registry.registerSourceType("chat_battery",
-                (sourceNode, context) -> {
-                    // Lê "recharge_seconds" do config, padrão 600 se não existir
-                    long recharge = sourceNode.node("recharge_seconds").getLong(600);
-
-                    // O context.parseValues lê automaticamente: xp, skill, etc.
-                    return new SocialSource(context.parseValues(sourceNode), recharge);
-                }
-        );
-
-        Bukkit.getPluginManager().registerEvents(
+        // F. Registra Listeners Específicos de Skills
+        // Passamos o plugin e a API para o Leveler
+        getServer().getPluginManager().registerEvents(
                 new SocialLeveler(this, auraSkills),
                 this
         );
+    }
 
-        if (!new File(getDataFolder(), "sources/social.yml").exists()) {
-            saveResource("sources/social.yml", false);
+    /**
+     * Gerencia comandos e eventos padrões do Minecraft
+     */
+    private void carregarBukkit() {
+        // Registra eventos da classe principal (se houver @EventHandler nesta classe)
+        getServer().getPluginManager().registerEvents(this, this);
+
+        // Registra comandos de forma segura
+        registrarComando("sethome");
+        registrarComando("home");
+        registrarComando("habilidades");
+    }
+
+// =========================================================================
+// MÉTODOS AUXILIARES (Para deixar o código acima limpo)
+// =========================================================================
+
+    /**
+     * Salva um arquivo da pasta resources apenas se ele não existir.
+     */
+    private void salvarArquivo(String caminho) {
+        File arquivo = new File(getDataFolder(), caminho);
+        if (!arquivo.exists()) {
+            // O false no final garante que não vamos sobrescrever config de quem já usa o plugin
+            saveResource(caminho, false);
+            getLogger().info("Arquivo gerado: " + caminho);
         }
-        getLogger().info("Skill Social carregada!");
+    }
 
-
-
-        registry.registerSkill(MinhasSkills.MARKENTING);
-
+    /**
+     * Registra um comando verificando se ele existe no plugin.yml para evitar crash.
+     */
+    private void registrarComando(String nomeComando) {
+        var pluginCommand = getCommand(nomeComando);
+        if (pluginCommand != null) {
+            pluginCommand.setExecutor(this);
+        } else {
+            getLogger().warning("ERRO: O comando '/" + nomeComando + "' não foi definido no plugin.yml!");
+        }
     }
 
     public void onDisable() {
@@ -270,23 +299,7 @@ public final class Meu_plugin extends JavaPlugin implements Listener {
         getConfig().set("habilidades." + uuid + ".passo-gelado", ativo);
         saveConfig();
     }
-/* ----old movement ----
-    @EventHandler
-    public void movement(PlayerMoveEvent event) {
-        Player player = event.getPlayer();
-        if (!modoGeloAtivo.contains(player.getUniqueId())) return;
-        Location loc = event.getPlayer().getLocation();
-        loc.setY(loc.getY() - 1);
-        Block b = loc.getBlock();
-        Material material = b.getType();
-        switch (material) {
-            case WATER:
-                b.setType(Material.ICE);
-                break;
-        }
-    }
 
- */
     @EventHandler
     public void movement(PlayerMoveEvent event) {
         Player player = event.getPlayer();
@@ -294,7 +307,6 @@ public final class Meu_plugin extends JavaPlugin implements Listener {
 
         // --- CONFIGURAÇÃO ---
         int raio = 0;
-        //Location loc = player.getLocation(); ->lagless server
         Location loc = event.getTo();
         if (loc == null) return;
         for (int x = -raio; x <= raio; x++) {

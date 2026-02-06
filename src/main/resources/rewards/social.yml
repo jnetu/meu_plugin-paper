@@ -1,0 +1,7 @@
+patterns:
+  - type: stat
+    stat: meu_plugin/carisma
+    value: 1
+    pattern:
+      interval: 5
+      start: 5
