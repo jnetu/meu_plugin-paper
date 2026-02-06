@@ -7,3 +7,4 @@ out/
 Thumbs.db
 /build/libs/*.jar
 /.gradle
+/build
