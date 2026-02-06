@@ -1,5 +1,12 @@
 package jnetu.meu_plugin;
 
+import dev.aurelium.auraskills.api.AuraSkillsApi;
+import dev.aurelium.auraskills.api.registry.NamespacedRegistry;
+import dev.aurelium.auraskills.api.source.SourceType;
+import jnetu.meu_plugin.skill.MinhasSkills;
+import jnetu.meu_plugin.skill.SocialLeveler;
+import jnetu.meu_plugin.skill.SocialSkill;
+import jnetu.meu_plugin.skill.SocialSource;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -22,6 +29,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.File;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.UUID;
@@ -48,12 +56,58 @@ public final class Meu_plugin extends JavaPlugin implements Listener {
 
 
         //AURASKILLS
-        if (getServer().getPluginManager().getPlugin("AuraSkills") != null) {
-            Objects.requireNonNull(getCommand("auratest")).setExecutor(new Aura_meu());
-            getLogger().info("Integração com AuraSkills ativada!");
-        } else {
-            getLogger().warning("AuraSkills não encontrado! O comando /auratest foi desativado.");
+//        if (getServer().getPluginManager().getPlugin("AuraSkills") != null) {
+//            Objects.requireNonNull(getCommand("auratest")).setExecutor(new Aura_meu());
+//            getLogger().info("Integração com AuraSkills ativada!");
+//
+//            try {
+//                new SocialSkill(this).registrar();
+//            } catch (Exception e) {
+//                throw new RuntimeException(e);
+//            }
+//
+//        } else {
+//            getLogger().warning("AuraSkills não encontrado! O comando /auratest foi desativado.");
+//        }
+
+
+        AuraSkillsApi auraSkills = AuraSkillsApi.get();
+
+        // 1. Cria o Registry
+        NamespacedRegistry registry = auraSkills.useRegistry("meu_plugin", getDataFolder());
+
+        // 2. Registra a Skill estática
+        registry.registerSkill(MinhasSkills.SOCIAL);
+
+        // 3. Registra o Listener (lógica)
+        //Bukkit.getPluginManager().registerEvents(new SocialSkill(this), this);
+        //Bukkit.getPluginManager().registerEvents(new SocialLeveler(this, auraSkills), this);
+
+
+        SourceType chatSourceType = registry.registerSourceType("chat_battery",
+                (sourceNode, context) -> {
+                    // Lê "recharge_seconds" do config, padrão 600 se não existir
+                    long recharge = sourceNode.node("recharge_seconds").getLong(600);
+
+                    // O context.parseValues lê automaticamente: xp, skill, etc.
+                    return new SocialSource(context.parseValues(sourceNode), recharge);
+                }
+        );
+
+        Bukkit.getPluginManager().registerEvents(
+                new SocialLeveler(this, auraSkills),
+                this
+        );
+
+        if (!new File(getDataFolder(), "sources/social.yml").exists()) {
+            saveResource("sources/social.yml", false);
         }
+        getLogger().info("Skill Social carregada!");
+
+
+
+        registry.registerSkill(MinhasSkills.MARKENTING);
+
     }
 
     public void onDisable() {

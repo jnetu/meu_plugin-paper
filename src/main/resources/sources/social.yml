@@ -1,0 +1,6 @@
+sources:
+  falar_chat:
+    type: meu_plugin/chat_battery
+    skill: meu_plugin/social
+    xp: 100.0
+    recharge_seconds: 600
