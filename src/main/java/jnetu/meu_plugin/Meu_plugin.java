@@ -85,6 +85,24 @@ public final class Meu_plugin extends JavaPlugin implements Listener {
                 new SocialLeveler(this, auraSkills),
                 this
         );
+
+
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            try {
+                AuraSkillsMenuInjector injector = new AuraSkillsMenuInjector(this);
+                injector.injetarContextosCustomizados();  // Injeta stat Carisma
+                injector.injetarContextoTrait();          // Injeta trait chat_battery
+                injector.injetarContextoSkill();          // Injeta skill Social
+
+                getLogger().info("✓ Menus do AuraSkills modificados com sucesso!");
+                getLogger().info("  Execute /skills reload ou reinicie o servidor");
+            } catch (Exception e) {
+                getLogger().warning("Não foi possível injetar menus no AuraSkills: " + e.getMessage());
+                getLogger().warning("Isso é normal se for a primeira vez rodando o plugin.");
+            }
+        }, 20L); // Espera 1 segundo (20 ticks)
+
+
     }
 
     /**
@@ -124,6 +142,13 @@ public final class Meu_plugin extends JavaPlugin implements Listener {
     }
 
     public void onDisable() {
+        try {
+            AuraSkillsMenuInjector injector = new AuraSkillsMenuInjector(this);
+            injector.removerInjections();
+            getLogger().info("Configurações do AuraSkills restauradas");
+        } catch (Exception e) {
+            // Ignora erros ao desinstalar
+        }
     }
 
     @EventHandler
