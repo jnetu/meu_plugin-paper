@@ -2,6 +2,7 @@ package jnetu.meu_plugin;
 
 import dev.aurelium.auraskills.api.AuraSkillsApi;
 import dev.aurelium.auraskills.api.registry.NamespacedRegistry;
+import jnetu.meu_plugin.economy.MoedaEconomy;
 import jnetu.meu_plugin.skill.*;
 import jnetu.meu_plugin.util.PluginsListCustomizer;
 import net.kyori.adventure.text.Component;
@@ -23,6 +24,7 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.jetbrains.annotations.NotNull;
 
@@ -53,7 +55,24 @@ public final class Meu_plugin extends JavaPlugin implements Listener {
         // CONFIGURAÇÃO BUKKIT Comandos Eventos
         carregarBukkit();
 
+        carregarEconomia();
         getLogger().info("Plugin totalmente carregado e pronto!");
+    }
+
+
+    private void carregarEconomia() {
+        if (getServer().getPluginManager().getPlugin("Vault") != null) {
+            MoedaEconomy minhaEconomia = new MoedaEconomy();
+            getServer().getServicesManager().register(
+                    Economy.class,
+                    minhaEconomia,
+                    this,
+                    ServicePriority.Highest
+            );
+            getLogger().info("Economia 'Moeda' registrada no Vault com sucesso!");
+        } else {
+            getLogger().warning("Vault não encontrado! A economia não funcionará.");
+        }
     }
 
 

@@ -17,6 +17,7 @@ repositories {
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     compileOnly files('libs/AuraSkills-2.3.10.jar')
+    compileOnly files("libs/VaultAPI:1.7.3.jar")
 }
 
 tasks {
