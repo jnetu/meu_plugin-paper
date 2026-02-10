@@ -3,6 +3,7 @@ package jnetu.meu_plugin;
 import dev.aurelium.auraskills.api.AuraSkillsApi;
 import dev.aurelium.auraskills.api.registry.NamespacedRegistry;
 import jnetu.meu_plugin.comandos.ComandosManager;
+import jnetu.meu_plugin.crafting.CraftingManager;
 import jnetu.meu_plugin.economy.MoedaEconomy;
 import jnetu.meu_plugin.habilidades.HabilidadesManager;
 import jnetu.meu_plugin.itens.ItensManager;
@@ -26,6 +27,7 @@ public final class Meu_plugin extends JavaPlugin implements Listener {
     private HabilidadesManager habilidadesManager;
     private ItensManager itensManager;
     private ComandosManager comandosManager;
+    private CraftingManager craftingManager;
 
     @Override
     public void onEnable() {
@@ -37,6 +39,7 @@ public final class Meu_plugin extends JavaPlugin implements Listener {
         this.habilidadesManager = new HabilidadesManager(this);
         this.itensManager = new ItensManager(this);
         this.comandosManager = new ComandosManager(this);
+        this.craftingManager = new CraftingManager(this);
 
         // 2. Registra economia no Vault
         carregarEconomia();
